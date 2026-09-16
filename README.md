@@ -4,6 +4,8 @@ FieldPack defines compact buffer layouts for objects built from runtime-defined 
 
 The project also provides a Tcl extension with an API for runtime schema registration, copy-on-write values, scalar access, and nested `slice` or `pack` fields.
 
+In local Tcl benchmarks using 100,000 operations or values, FieldPack **reads** are **1.14-1.17x** faster than lists and **1.97-2.04x** faster than dicts; **writes** are **0.86-0.96x** as fast as lists and **1.72-2.16x** faster than dicts. FieldPack uses **1.40-3.10x less peak memory** than lists and **3.53-11.68x less** than dicts.
+
 # Data Layout
 
 Each field is stored in a single byte array, including the schema ID, inline fields, inline nested field packs, and fields that point to separately allocated data.
@@ -280,12 +282,65 @@ Measures native scalar and nested `slice`/`pack` access.
 ### Memory
 
 ```sh
-tclsh benchmark/fieldpack_mem.tcl fieldpack 100000 simple build/fieldpack.so
-tclsh benchmark/fieldpack_mem.tcl list 100000 simple
-tclsh benchmark/fieldpack_mem.tcl dict 100000 simple
+tclsh benchmark/fieldpack_mem.tcl fieldpack 100000 scalar build/fieldpack.so
+tclsh benchmark/fieldpack_mem.tcl list 100000 scalar
+tclsh benchmark/fieldpack_mem.tcl dict 100000 scalar
 ```
 
-Scenarios are `simple`, `many`, `strings`, and `nested`. Start a fresh process for each representation. The script waits for Enter so resident memory can be inspected with `htop`.
+Scenarios are `scalar`, `simple`, `many`, `strings`, and `nested`. Start a fresh process for each representation. The script waits for Enter so resident memory can be inspected with `htop`.
+
+### Recorded results
+
+Measured on Linux with Tcl 8.6, GCC 11, and 100,000 iterations or values. Speedup and memory advantage are baseline / FieldPack; `1.71x` means FieldPack uses 1.71x less. Values above `1.00x` favor FieldPack.
+
+#### Time
+
+Timing uses equivalent FieldPack, list, and dict fixtures, with setup outside loops, 1,000 warmup iterations, and 100,000 timed iterations.
+
+| Operation | FieldPack (us/op) | vs list (x) | vs dict (x) |
+| --- | ---: | ---: | ---: |
+| Scalar read | 0.183 | 1.15x | 2.04x |
+| Scalar write | 0.378 | 0.86x | 1.72x |
+| Nested slice read | 0.199 | 1.17x | 1.97x |
+| Nested slice write | 0.360 | 0.96x | 2.16x |
+| Nested pack read | 0.205 | 1.14x | 1.99x |
+| Nested pack write | 0.356 | 0.90x | 2.03x |
+
+**Scalar read.** Reads integer index `0` with `fieldpack::get`, `lindex`, or `dict get`.
+
+**Scalar write.** Writes integer index `0` with `fieldpack::set`, `lset`, or `dict set`.
+
+**Nested slice read.** Reads inline child integer at `{0 0}` with `fieldpack::get_path`, `lindex`, or `dict get`.
+
+**Nested slice write.** Writes inline child integer at `{0 0}` with `fieldpack::set_path`, `lset`, or `dict set`.
+
+**Nested pack read.** Reads allocated child integer at `{1 0}` with `fieldpack::get_path`, `lindex`, or `dict get`.
+
+**Nested pack write.** Writes allocated child integer at `{1 0}` with `fieldpack::set_path`, `lset`, or `dict set`.
+
+#### Memory
+
+Memory uses 100,000 values per fresh process. Peak RSS comes from `/usr/bin/time` after construction.
+
+| Scenario | FieldPack peak RSS (MiB) | vs list (x) | vs dict (x) |
+| --- | ---: | ---: | ---: |
+| Scalar | 17.3 | 1.71x | 4.88x |
+| Simple | 20.4 | 1.76x | 4.46x |
+| Many fields | 29.7 | 3.10x | 11.68x |
+| Strings | 76.8 | 1.40x | 3.53x |
+| Nested | 29.7 | 2.49x | 7.63x |
+
+**Simple.** Each value has one integer, double, and string.
+
+**Scalar.** Each value has one integer, double, and boolean; no strings or nesting.
+
+**Many fields.** Each value has 12 repeating integer, double, string, and boolean fields.
+
+**Strings.** Each value has eight generated string fields.
+
+**Nested.** Each value has two integer/double/string children: one inline `slice`, one allocated `pack`.
+
+Results are one local run, not a performance guarantee. Repeat on target hardware before making deployment capacity decisions.
 
 ## Build
 

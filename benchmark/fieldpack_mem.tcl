@@ -1,5 +1,5 @@
 if {$argc < 3 || $argc > 4} {
-    error "usage: fieldpack_mem.tcl fieldpack|list|dict N simple|many|strings|nested ?extension?"
+    error "usage: fieldpack_mem.tcl fieldpack|list|dict N scalar|simple|many|strings|nested ?extension?"
 }
 
 set implementation [lindex $argv 0]
@@ -11,8 +11,8 @@ if {$implementation ni {fieldpack list dict}} {
 if {![string is integer -strict $count] || $count < 1} {
     error "N must be positive integer"
 }
-if {$scenario ni {simple many strings nested}} {
-    error "scenario must be simple, many, strings, or nested"
+if {$scenario ni {scalar simple many strings nested}} {
+    error "scenario must be scalar, simple, many, strings, or nested"
 }
 if {$implementation eq "fieldpack"} {
     set extension [expr {$argc == 4 ? [lindex $argv 3] : "./fieldpack[info sharedlibextension]"}]
@@ -22,6 +22,13 @@ if {$implementation eq "fieldpack"} {
 
 proc make_value {implementation scenario index schemas} {
     if {$implementation eq "fieldpack"} {
+        if {$scenario eq "scalar"} {
+            set value [::fieldpack::new [dict get $schemas scalar]]
+            ::fieldpack::set value 0 $index
+            ::fieldpack::set value 1 [expr {$index + 0.5}]
+            ::fieldpack::set value 2 [expr {$index % 2}]
+            return $value
+        }
         if {$scenario eq "simple"} {
             set value [::fieldpack::new [dict get $schemas simple]]
             ::fieldpack::set value 0 $index
@@ -59,6 +66,12 @@ proc make_value {implementation scenario index schemas} {
         return $value
     }
 
+    if {$scenario eq "scalar"} {
+        if {$implementation eq "list"} {
+            return [list $index [expr {$index + 0.5}] [expr {$index % 2}]]
+        }
+        return [dict create int $index double [expr {$index + 0.5}] bool [expr {$index % 2}]]
+    }
     if {$scenario eq "simple"} {
         if {$implementation eq "list"} {
             return [list $index [expr {$index + 0.5}] "value-$index"]
@@ -108,6 +121,7 @@ proc make_value {implementation scenario index schemas} {
 
 set schemas [dict create]
 if {$implementation eq "fieldpack"} {
+    set scalar_schema [::fieldpack::schema::register {} {int double bool} 1]
     set simple_schema [::fieldpack::schema::register {} {int double string} 1]
     set many_schema [::fieldpack::schema::register {} \
         {int double string bool int double string bool int double string bool} 1]
@@ -116,6 +130,7 @@ if {$implementation eq "fieldpack"} {
     set nested_child_schema [::fieldpack::schema::register {} {int double string} 1]
     set nested_schema [::fieldpack::schema::register {} \
         [list [list slice $nested_child_schema] [list pack $nested_child_schema]] 1]
+    dict set schemas scalar $scalar_schema
     dict set schemas simple $simple_schema
     dict set schemas many $many_schema
     dict set schemas strings $strings_schema
